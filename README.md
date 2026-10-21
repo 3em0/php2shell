@@ -5,10 +5,10 @@
 
 **Remote, HTTP-only RCE on PHP 8.4.26 + Apache prefork + mod_php — ASLR bypassed, no `session_start()`, no file written on the target.**
 
-[![PHP](https://img.shields.io/badge/PHP-8.4.26-777BB4?logo=php&logoColor=white)](https://hub.docker.com/_/php)
+[![PHP](https://img.shields.io/badge/PHP-8.3%20%7C%208.4%20%7C%208.5-777BB4?logo=php&logoColor=white)](https://hub.docker.com/_/php)
 [![Apache](https://img.shields.io/badge/Apache-2.4%20prefork-D22128?logo=apache&logoColor=white)](https://httpd.apache.org/)
 [![Platform](https://img.shields.io/badge/platform-linux%2Famd64-informational)](#requirements)
-[![Status](https://img.shields.io/badge/official%20image-3%2F3%20RCE-success)](#reproduction-status)
+[![Status](https://img.shields.io/badge/8.4%20%26%208.5-RCE%20verified-success)](#reproduction-status)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 English&nbsp;|&nbsp;[中文](README.zh-CN.md)
@@ -63,8 +63,11 @@ PROOF: uid=33(www-data) gid=33(www-data) groups=33(www-data)
   runtime; the terminal stage calls `zif_system` inside `libphp` and never touches libc.
 - **No target build.** The environment is the official `php:8.4.26-apache` image plus a handful of
   config mounts — there is no `docker build`.
+- **Multi-version.** The same chain gets reliable RCE on the official **8.4** and **8.5** images; the
+  only version-sensitive value is a single chunk-relative offset, picked automatically on localhost.
 - **Self-calibrating offsets.** Against a localhost container the libphp symbol offsets are read
-  straight from `libphp.so`, so an image refresh needs no manual edit.
+  straight from `libphp.so` (and refreshed on every run, so switching images can't leave them stale),
+  so an image refresh needs no manual edit.
 
 ## Requirements
 
@@ -108,11 +111,23 @@ container's `libphp.so` and caches them in `out/offsets.env`.
 
 ## Reproduction status
 
-Measured on the official `php:8.4.26-apache` image (the shipped `docker/` lab), `linux/amd64`:
+Measured live on the official PHP `-apache` images (all Debian 12 bookworm), `linux/amd64`, using
+the shipped `docker/` lab with `PHP_IMAGE` pointed at each version:
 
-| Profile | Target | Result |
-| --- | --- | --- |
-| `bookworm` (default) | official `php:8.4.26-apache` | **3 / 3** one-shot RCE |
+| PHP version | Profile | libphp offsets | Stage 1–2 leaks | Stage 3 RCE |
+| --- | --- | --- | --- | --- |
+| **8.4.26** | `bookworm` (default) | auto `0x465370` / `0x65eb60` | reliable | ✅ **3 / 3** one-shot |
+| **8.5.11** | `bookworm` (default) | auto `0x5996e0` / `0x7b47a0` | reliable | ✅ **6 / 6** one-shot |
+| **8.3.35** | `bookworm83` (auto on localhost) | auto `0x3ac080` / `0x49ec50` | reliable (10 / 10) | ⚠️ occasional — see [limitations](#limitations) |
+
+The libphp symbol offsets are read from each image at runtime, so only the chunk-relative `htdata`
+offset is version-specific: `0x690d8` for 8.4/8.5, `0x6a0d8` for 8.3. Point the lab at another version
+with:
+
+```bash
+PHP_IMAGE=php:8.5-apache docker compose -f docker/docker-compose.yml up -d --force-recreate
+python3 exploit.py -u http://127.0.0.1:8088/index.php   # same command, offsets auto-adjust
+```
 
 ## How it works
 
@@ -164,20 +179,28 @@ them depend on ASLR**. The `stage*` fields groom the heap and differ per build.
 
 | Profile | Target build | `zif_system` | `ZVAL_PTR_DTOR` | `htdata` | stage1 / stage2 |
 | --- | --- | --- | --- | --- | --- |
-| **`bookworm`** (default) | official `php:8.4.26-apache` (Debian 12, Apache 2.4.69) | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`, `t=406`, `v=16` |
+| **`bookworm`** (default) | official `php:8.4`/`8.5-apache` (Debian 12) | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`, `t=406`, `v=16` |
+| `bookworm83` | official `php:8.3-apache` (Debian 12) | `0x3ac080` | `0x49ec50` | `0x6a0d8` | `n=841`, `t=406`, `v=16` |
 | `lab` | self-built (Apache 2.4.68, minimal PHP) | `0x43a870` | `0x613c50` | `0x6e0d8` | `n=892`, `t=443`, `v=1` |
 
 Offset resolution precedence (highest first):
 
 1. **CLI** — `--zif-offset` / `--dtor-offset` / `--htdata-offset`.
-2. **Offsets file** — `out/offsets.env`, auto-written by `docker/offsets.py` for a localhost
-   container (libphp offsets only).
+2. **Offsets file** — `out/offsets.env`, written by `docker/offsets.py` for a localhost container
+   (libphp offsets only; refreshed on every localhost run so it can never go stale).
 3. **Profile defaults** — the measured values in the table above.
 
-Because each profile now carries its *own* correct libphp defaults, the `bookworm` profile works
-against a **remote** official-image target out of the box, even when `docker/offsets.py` cannot run
-(it only reaches a localhost container). Switch profile with `--profile lab`; disable auto-derivation
-with `--offsets-file '' --no-auto-offsets`.
+Two conveniences make multi-version use zero-config:
+
+- **Version-aware `htdata`.** On a localhost container the exploit reads the PHP minor version and,
+  on the default profile, automatically uses the `bookworm83` `htdata` for 8.3 — so the same command
+  fits 8.3 / 8.4 / 8.5 with no flags.
+- **Own libphp defaults per profile.** Each profile carries its own correct libphp defaults, so it
+  also works against a **remote** target of that build out of the box, even when `docker/offsets.py`
+  cannot run (it only reaches a localhost container).
+
+Switch profile with `--profile bookworm83` / `--profile lab`; disable auto-derivation with
+`--offsets-file '' --no-auto-offsets`.
 
 ## Running arbitrary commands
 
@@ -196,7 +219,7 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php -c 'sh</out/c'
 | --- | --- | --- |
 | `-u`, `--url` | *(required)* | Target PHP page, e.g. `http://127.0.0.1:8088/index.php` |
 | `-c`, `--cmd` | `id>/out/p1` | Command to execute (max 14 bytes) |
-| `--profile` | `bookworm` | Build profile: `bookworm` (official image) or `lab` |
+| `--profile` | `bookworm` | Build profile: `bookworm` (8.4/8.5), `bookworm83` (8.3), or `lab` |
 | `--proof-file` | `out/p1` | Local file read back after exploitation (`''` disables) |
 | `--fetch` | *(off)* | `GET` this path afterwards (for commands writing to the web root) |
 | `--zif-offset` / `--dtor-offset` / `--htdata-offset` | *(profile)* | Override individual offsets |
@@ -252,6 +275,9 @@ php2shell/
 
 - The current RCE requires `display_errors=1`, `memory_limit=8M`, `max_input_vars=1000`,
   `session.use_cookies=1`, `session.use_strict_mode=0` and single-worker prefork.
+- **PHP 8.3 is experimental.** On `php:8.3-apache` the ASLR leaks (stages 1–2) are fully reliable, but
+  stage-3 code execution only lands occasionally with the 8.4-tuned grooming — 8.3 needs its own
+  stage-3 calibration. Reliable RCE is currently verified on **8.4** and **8.5**.
 - A pure-HTTP heap leak works with `display_errors=0`; the complete RCE for that configuration is not
   included here (see [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md)).
 - The offsets are x86-64; a different architecture or a rebuilt `libphp.so` shifts them (use
@@ -261,8 +287,10 @@ php2shell/
 
 Original vulnerability research and proof of concept by
 [**@9bie**](https://github.com/9bie/php2shell-bypass-aslr-exp). This repository reproduces that work
-in a self-contained Docker lab, restructures the per-profile offsets, and fixes the `out/` permission
-handling so the official-image flow calibrates cleanly from a cold start.
+in a self-contained Docker lab, restructures the per-profile offsets into one typed table, extends the
+chain to PHP **8.5** (and the 8.3 leak path) with runtime offset auto-derivation and version-aware
+`htdata` selection, and fixes the `out/` permission handling so the official-image flow calibrates
+cleanly from a cold start.
 
 ## License
 

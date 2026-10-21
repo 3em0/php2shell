@@ -3,7 +3,9 @@ services:
     # Official Docker image, no local build:
     #   https://github.com/docker-library/php  (tag 8.4.26-apache)
     # Debian 12 base, Apache prefork + mod_php, PHP 8.4.26.
-    image: php:8.4.26-apache
+    # Override the version for multi-version testing, e.g.
+    #   PHP_IMAGE=php:8.4.27-apache docker compose -f docker/docker-compose.yml up -d
+    image: ${PHP_IMAGE:-php:8.4.26-apache}
     platform: linux/amd64
     container_name: php2shell-target
     ports:
