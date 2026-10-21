@@ -1,0 +1,16 @@
+# Exploit output: proof files and auto-derived offsets
+/out/*
+!/out/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

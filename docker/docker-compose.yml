@@ -1,0 +1,25 @@
+services:
+  target:
+    # Official Docker image, no local build:
+    #   https://github.com/docker-library/php  (tag 8.4.26-apache)
+    # Debian 12 base, Apache prefork + mod_php, PHP 8.4.26.
+    image: php:8.4.26-apache
+    platform: linux/amd64
+    container_name: php2shell-target
+    ports:
+      - "127.0.0.1:8088:80"
+    volumes:
+      - ./php.ini:/usr/local/etc/php/conf.d/zz-php2shell.ini:ro
+      - ./apache.conf:/etc/apache2/conf-enabled/zz-php2shell.conf:ro
+      - ./www:/var/www/html:ro
+      - ../out:/out
+    # The host ./out directory is bind-mounted read-write. It must be writable
+    # both by the Apache worker (www-data, which writes the proof file) and by
+    # the host user running the exploit (which writes out/offsets.env via
+    # docker/offsets.py). A world-writable mode satisfies both without guessing
+    # the host UID; chowning to www-data alone would lock the host user out.
+    command:
+      - /bin/sh
+      - -c
+      - chmod 0777 /out 2>/dev/null || true; exec apache2-foreground
+    restart: unless-stopped
