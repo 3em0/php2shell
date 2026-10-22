@@ -8,7 +8,7 @@
 [![PHP](https://img.shields.io/badge/PHP-8.3%20%7C%208.4%20%7C%208.5-777BB4?logo=php&logoColor=white)](https://hub.docker.com/_/php)
 [![Apache](https://img.shields.io/badge/Apache-2.4%20prefork-D22128?logo=apache&logoColor=white)](https://httpd.apache.org/)
 [![Platform](https://img.shields.io/badge/platform-linux%2Famd64-informational)](#环境要求)
-[![Status](https://img.shields.io/badge/8.4%20%26%208.5-RCE%20verified-success)](#复现结果)
+[![Status](https://img.shields.io/badge/8.3%20%7C%208.4%20%7C%208.5-RCE%20verified-success)](#复现结果)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [English](README.md)&nbsp;|&nbsp;中文
@@ -59,8 +59,8 @@ PROOF: uid=33(www-data) gid=33(www-data) groups=33(www-data)
 - **绕过 ASLR。** 两次 `Set-Cookie` 越界读在运行时恢复 chunk 和 `libphp` 基址；终端阶段调用 `libphp`
   内的 `zif_system`，完全不依赖 libc。
 - **无需编译目标。** 环境就是官方 `php:8.4.26-apache` 镜像加若干配置挂载，没有 `docker build`。
-- **多版本。** 同一条链在官方 **8.4** 和 **8.5** 镜像上都能稳定拿到 RCE；唯一与版本相关的只是一个 chunk
-  相对偏移，本机运行时会自动选好。
+- **多版本。** 同一条链在官方 **8.3**、**8.4** 和 **8.5** 镜像上都能稳定拿到 RCE；唯一与版本相关的只是一个
+  chunk 相对偏移，本机运行时会自动选好。
 - **偏移自标定。** 对本机容器会直接从 `libphp.so` 读取符号偏移，并在每次运行时刷新（换镜像也不会残留旧值），
   更换或升级镜像后无需手改。
 
@@ -110,9 +110,9 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php
 
 | PHP 版本 | Profile | libphp 偏移 | 阶段 1–2 泄漏 | 阶段 3 RCE |
 | --- | --- | --- | --- | --- |
+| **8.3.35** | `bookworm83`（本机自动选） | 自动 `0x3ac080` / `0x49ec50` | 稳定 | ✅ **8 / 8** 一键 |
 | **8.4.26** | `bookworm`（默认） | 自动 `0x465370` / `0x65eb60` | 稳定 | ✅ **3 / 3** 一键 |
 | **8.5.11** | `bookworm`（默认） | 自动 `0x5996e0` / `0x7b47a0` | 稳定 | ✅ **6 / 6** 一键 |
-| **8.3.35** | `bookworm83`（本机自动选） | 自动 `0x3ac080` / `0x49ec50` | 稳定（10 / 10） | ⚠️ 偶发 —— 见[边界与限制](#边界与限制) |
 
 libphp 符号偏移在运行时从各镜像读取,因此只有 chunk 相对的 `htdata` 偏移与版本有关：8.4/8.5 为 `0x690d8`,
 8.3 为 `0x6a0d8`。把靶场指向其他版本：
@@ -259,8 +259,8 @@ php2shell/
 
 - 当前 RCE 要求 `display_errors=1`、`memory_limit=8M`、`max_input_vars=1000`、
   `session.use_cookies=1`、`session.use_strict_mode=0`、单 worker prefork。
-- **PHP 8.3 为实验性。** 在 `php:8.3-apache` 上 ASLR 泄漏（阶段 1–2）完全稳定，但阶段 3 的命令执行在 8.4
-  标定的 grooming 下只能偶发命中 —— 8.3 需要自己的阶段 3 标定。稳定 RCE 目前只在 **8.4** 和 **8.5** 上验证。
+- 稳定 RCE 已在 PHP **8.3 / 8.4 / 8.5**（官方 `-apache` 镜像，`linux/amd64`）上验证。同一小版本的其他点版本
+  预期同样可用（libphp 偏移自动读取），但未逐一测试。
 - `display_errors=0` 下纯 HTTP 堆泄漏可行，但该配置的完整 RCE 未包含在此
   （见 [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md)）。
 - 偏移为 x86-64；不同架构或重新编译的 `libphp.so` 会使其漂移（用 `docker/offsets.py` 或 `--*-offset`）。
@@ -268,8 +268,8 @@ php2shell/
 ## 致谢
 
 原始漏洞研究与 PoC 由 [**@9bie**](https://github.com/9bie/php2shell-bypass-aslr-exp) 完成。本仓库在自带
-Docker 靶场中复现该工作，把各 profile 的偏移重构进一张带类型的表，将利用链扩展到 PHP **8.5**（以及 8.3 的
-泄漏路径），加入运行时偏移自动读取与随版本自动选择 `htdata`，并修复了 `out/` 的权限处理，使官方镜像流程可以从
+Docker 靶场中复现该工作，把各 profile 的偏移重构进一张带类型的表，将利用链扩展到 PHP **8.3 / 8.4 / 8.5**
+的稳定 RCE，加入运行时偏移自动读取与随版本自动选择 `htdata`，并修复了 `out/` 的权限处理，使官方镜像流程可以从
 冷启动干净地自标定。
 
 ## 许可证
