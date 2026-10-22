@@ -270,8 +270,10 @@ php2shell/
   `session.use_cookies=1`、`session.use_strict_mode=0`、单 worker prefork。
 - 稳定 RCE 已在 PHP **8.3 / 8.4 / 8.5**（官方 `-apache` 镜像，`linux/amd64`）上验证。同一小版本的其他点版本
   预期同样可用（libphp 偏移自动读取），但未逐一测试。
-- **不支持 PHP 8.1 / 8.2。** 在当前 `php:8.1-apache`、`php:8.2-apache` 镜像上,阶段 1 的堆泄漏原语在本 grooming
-  下不触发（始终拿不到 chunk 基址）,利用在产生任何泄漏前就停止。支持它们需要为这些版本重新标定阶段 1。
+- **PHP 8.1 / 8.2 不受此链影响。** 在 `php:8.1-apache`、`php:8.2-apache` 上,阶段 1 的 `Set-Cookie` 越界读
+  始终不触发 —— 无论伪造 `zend_string` 字段取多大（已扫 55–167 B）,`B` 都只返回一个干净的 32 字节会话 id,
+  因此拿不到任何泄漏,在阶段 2 之前就停止。该原语在 PHP **8.3 – 8.5**（已实测）上有效,分界点在 8.3;8.1/8.2
+  需要另一套阶段 1 原语（若这些版本上存在的话）。
 - `display_errors=0` 下纯 HTTP 堆泄漏可行，但该配置的完整 RCE 未包含在此
   （见 [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md)）。
 - 偏移为 x86-64；不同架构或重新编译的 `libphp.so` 会使其漂移（用 `docker/offsets.py` 或 `--*-offset`）。

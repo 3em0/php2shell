@@ -288,10 +288,11 @@ php2shell/
 - Reliable RCE is verified on PHP **8.3 / 8.4 / 8.5** (official `-apache` images, `linux/amd64`). Other
   point releases of the same minor are expected to work (libphp offsets auto-derive), but are not
   individually tested.
-- **PHP 8.1 / 8.2 are not supported.** On the current `php:8.1-apache` and `php:8.2-apache` images the
-  stage-1 heap-leak primitive does not fire with this grooming (the chain never recovers the chunk
-  base), so the exploit stops before any leak. Supporting them would require re-calibrating stage 1
-  for those versions.
+- **PHP 8.1 / 8.2 are not affected by this chain.** On `php:8.1-apache` and `php:8.2-apache` the
+  stage-1 `Set-Cookie` over-read never engages — `B` returns a clean 32-byte session id regardless of
+  the forged-`zend_string` field size (swept 55–167 B) — so the chain recovers no leak and stops
+  before stage 2. The primitive is effective on PHP **8.3 – 8.5** (tested); the boundary sits at 8.3,
+  and 8.1/8.2 would need a different stage-1 primitive, if one exists on those versions.
 - A pure-HTTP heap leak works with `display_errors=0`; the complete RCE for that configuration is not
   included here (see [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md)).
 - The offsets are x86-64; a different architecture or a rebuilt `libphp.so` shifts them (use
