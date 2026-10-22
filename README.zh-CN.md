@@ -258,6 +258,7 @@ php2shell/
 
 | 文档 | 主题 |
 | --- | --- |
+| [docs/MULTIVERSION.md](docs/MULTIVERSION.md) | 各版本偏移、支持矩阵,以及 8.1/8.2 边界调查 |
 | [docs/HTTP_HEAP_LEAK.md](docs/HTTP_HEAP_LEAK.md) | 阶段 1 堆泄漏、请求校准 |
 | [docs/ASLR_PURE_HTTP.md](docs/ASLR_PURE_HTTP.md) | libphp 泄漏与完整 ASLR 绕过链 |
 | [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md) | 不依赖 `display_errors` 的泄漏路径 |

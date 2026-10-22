@@ -275,6 +275,7 @@ php2shell/
 
 | Document | Topic |
 | --- | --- |
+| [docs/MULTIVERSION.md](docs/MULTIVERSION.md) | Per-version offsets, matrix, and the 8.1/8.2 boundary investigation |
 | [docs/HTTP_HEAP_LEAK.md](docs/HTTP_HEAP_LEAK.md) | Stage-1 heap leak, request calibration |
 | [docs/ASLR_PURE_HTTP.md](docs/ASLR_PURE_HTTP.md) | libphp leak and the full ASLR-bypass chain |
 | [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md) | Leak path that does not rely on `display_errors` |
