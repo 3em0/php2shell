@@ -122,6 +122,14 @@ PHP_IMAGE=php:8.5-apache docker compose -f docker/docker-compose.yml up -d --for
 python3 exploit.py -u http://127.0.0.1:8088/index.php   # 命令不变,偏移自动调整
 ```
 
+用 [`scripts/matrix.sh`](scripts/matrix.sh) 可一键复测整张表（每次 trial 都重建容器,所以得到的是真实的冷启动
+一键成功率）：
+
+```bash
+./scripts/matrix.sh -n 3            # 默认支持的镜像
+./scripts/matrix.sh -n 8 php:8.5-apache
+```
+
 ## 原理
 
 漏洞面是 `session.upload_progress` 在 `RINIT` 之前触发的 session 初始化，加上 OOM bailout 后跨请求残留的
@@ -242,6 +250,7 @@ php2shell/
 │   ├── offsets.py          # 从 libphp.so 解析 zif_system / zval_ptr_dtor
 │   └── www/index.php       # 整个目标：<?php echo "OK\n"; ?>
 ├── out/                    # proof 文件和 out/offsets.env 落在这里
+├── scripts/matrix.sh       # 跨 PHP 版本跑 exp 并报告可靠性
 └── docs/                   # 机制分析与 gdb 证据
 ```
 

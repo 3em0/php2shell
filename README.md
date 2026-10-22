@@ -130,6 +130,14 @@ PHP_IMAGE=php:8.5-apache docker compose -f docker/docker-compose.yml up -d --for
 python3 exploit.py -u http://127.0.0.1:8088/index.php   # same command, offsets auto-adjust
 ```
 
+Reproduce the whole table yourself with [`scripts/matrix.sh`](scripts/matrix.sh) (each trial recreates
+the container, so the count is an honest cold-start one-shot rate):
+
+```bash
+./scripts/matrix.sh -n 3            # default supported images
+./scripts/matrix.sh -n 8 php:8.5-apache
+```
+
 ## How it works
 
 The vulnerable surface is session initialization triggered by `session.upload_progress` *before*
@@ -259,6 +267,7 @@ php2shell/
 │   ├── offsets.py          # parse zif_system / zval_ptr_dtor from libphp.so
 │   └── www/index.php       # the entire target: <?php echo "OK\n"; ?>
 ├── out/                    # proof files and out/offsets.env land here
+├── scripts/matrix.sh       # run the exploit across PHP versions, report reliability
 └── docs/                   # mechanism write-ups and gdb evidence
 ```
 
